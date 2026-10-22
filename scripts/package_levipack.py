@@ -28,7 +28,7 @@ def build_manifest(values: dict[str, str]) -> dict[str, object]:
         "author": values["Author"],
         "description": values["Description"],
         "version": values["Version"],
-        "entry": "libSystemClientCore.so",
+        "entry": "libBedrockTools.so",
         "icon": "icon.png",
         "overwrite_files": ["icon.png", "resources/minecraft.ttf"],
         "overwrite_folders": [],

@@ -18,11 +18,32 @@ add_requires("glm")
 add_requires("entt")
 add_requires("fmt")
 
-target("SystemClientCore")
+target("BedrockTools")
     set_kind("shared")
     set_languages("c++20")
     set_strip("all")
-    add_files("src/main.cpp", "src/core/**.cpp", "src/config/*.cpp", "src/launcher/*.cpp", "src/modules/**.cpp")
+    -- Core + only SystemMods modules (avoids stb / unused modules)
+    add_files(
+        "src/main.cpp",
+        "src/core/**.cpp",
+        "src/config/*.cpp",
+        "src/launcher/*.cpp",
+        "src/modules/ModuleRegistry.cpp",
+        "src/modules/hud/armorhud.cpp",
+        "src/modules/visual/connectedglass.cpp",
+        "src/modules/visual/fogcolor.cpp",
+        "src/modules/visual/fullbright.cpp",
+        "src/modules/visual/glintcolor.cpp",
+        "src/modules/visual/hitbox.cpp",
+        "src/modules/visual/nofog.cpp",
+        "src/modules/visual/swingmodifier.cpp",
+        "src/modules/visual/thirdpersonnametag.cpp",
+        "src/modules/visual/viewmodel.cpp",
+        "src/modules/player/nick.cpp",
+        "src/modules/player/timechanger.cpp",
+        "src/modules/player/weatherchanger.cpp",
+        "src/modules/misc/nodisconnect.cpp"
+    )
     add_includedirs("include", {public = true})
     add_includedirs("src", "third_party")
     add_packages("preloader", "nlohmann_json", "glm", "entt", "fmt")
@@ -43,7 +64,7 @@ target("SystemClientCore")
             python = find_tool("py")
             if python then table.insert(args, "-3") end
         end
-        assert(python, "Python 3 is required to package SystemClientCore.internal")
+        assert(python, "Python 3 is required to package SystemMods.levipack")
         table.insert(args, path.join(os.projectdir(), "scripts", "package_levipack.py"))
         table.insert(args, "--library")
         table.insert(args, target:targetfile())
@@ -54,6 +75,6 @@ target("SystemClientCore")
         table.insert(args, "--version-header")
         table.insert(args, path.join(os.projectdir(), "include", "bedrocktools", "Version.hpp"))
         table.insert(args, "--output")
-        table.insert(args, path.join(target:targetdir(), "SystemClientCore.internal"))
+        table.insert(args, path.join(target:targetdir(), "SystemMods.levipack"))
         os.vrunv(python.program, args)
     end)
