@@ -1,0 +1,9 @@
+{
+  "type": "preload-native",
+  "name": "SystemMods",
+  "author": "hater12132-ai",
+  "description": "SystemMods visual pack for LeviLauncher / SystemClient.",
+  "version": "1.0.0",
+  "entry": "libBedrockTools.so",
+  "icon": "icon.png"
+}
