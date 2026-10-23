@@ -31,13 +31,8 @@ bool ModuleRegistry::onMouseEvent(int button, bool isDown) {
     return consumed;
 }
 
-void ModuleRegistry::setKeybindBlocked(bool blocked) {
-    mKeybindBlocked = blocked;
-}
-
-bool ModuleRegistry::keybindBlocked() const {
-    return mKeybindBlocked;
-}
+void ModuleRegistry::setKeybindBlocked(bool blocked) { mKeybindBlocked = blocked; }
+bool ModuleRegistry::keybindBlocked() const { return mKeybindBlocked; }
 
 void registerAllModules() {
     auto& registry = ModuleRegistry::get();
