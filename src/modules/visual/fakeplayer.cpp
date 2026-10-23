@@ -7,12 +7,14 @@
 #include <bedrocktools/sdk/Offsets.hpp>
 #include <cmath>
 #include <algorithm>
+#include <cstring>
 
 static FakePlayerModule* g_mod = nullptr;
 static bedrocktools::sdk::Vec3 g_pos{};
 static bedrocktools::sdk::Vec2 g_rot{};
 static void* g_lp = nullptr;
 static int g_renderFrames = 0;
+static int g_drawOk = 0;
 
 void FakePlayerModule::spawnAtPlayer() {
     if (!g_lp) {
@@ -23,13 +25,12 @@ void FakePlayerModule::spawnAtPlayer() {
     float fx = -std::sin(yaw), fz = std::cos(yaw);
     auto& fp = fakeplayer::get();
     float sc = std::clamp(bodyScale, 0.5f, 2.5f);
-    // distance 0 = exact copy of your feet position
     fp.feet = {
         g_pos.x + fx * distance,
         g_pos.y + heightOffset,
         g_pos.z + fz * distance
     };
-    fp.yaw = g_rot.y; // same facing as you (copy)
+    fp.yaw = g_rot.y;
     fp.height = 1.8f * sc;
     fp.width = 0.6f * sc;
     fp.hitFlash = 0.f;
@@ -59,7 +60,6 @@ static void onTick(void* player) {
     }
     if (!fp.active) return;
 
-    // Moving copy of yourself
     if (g_mod->followPlayer) {
         float yaw = g_rot.y * (float)(M_PI / 180.0);
         float fx = -std::sin(yaw), fz = std::cos(yaw);
@@ -74,7 +74,6 @@ static void onTick(void* player) {
         float dz = g_pos.z - fp.feet.z;
         fp.yaw = std::atan2(dx, dz) * (float)(180.0 / M_PI);
     }
-    // else: locked world position = zero knockback stationary copy
 }
 
 static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
@@ -82,9 +81,10 @@ static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
     auto& fp = fakeplayer::get();
     if (!fp.active || !g_mod->drawBody) return;
     if (!screenContext || (uintptr_t)screenContext < 0x1000) return;
+    if (!levelRenderer || (uintptr_t)levelRenderer < 0x1000) return;
 
     auto& T = tess_util::ctx();
-    if (!T.ready()) return; // keeps retrying inside ready()
+    if (!T.ready()) return;
 
     uintptr_t tessPtr = *(uintptr_t*)((uintptr_t)screenContext + bedrocktools::sdk::offsets::ScreenContext::mTessellator);
     if (!tessPtr || tessPtr < 0x1000) return;
@@ -96,10 +96,8 @@ static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
     float camY = *(float*)(lrp + bedrocktools::sdk::offsets::LevelRendererPlayer::mCamPos + 4);
     float camZ = *(float*)(lrp + bedrocktools::sdk::offsets::LevelRendererPlayer::mCamPos + 8);
 
-    T.ensureMat();
-    void* mat = T.matSelection
-        ? (void*)&T.matSelection
-        : (void*)(lrp + bedrocktools::sdk::offsets::LevelRendererPlayer::mSelectionOverlayMaterial);
+    // ONLY use LRP embedded material — same as chunkborder fallback (avoids bad shared_ptr)
+    void* mat = (void*)(lrp + bedrocktools::sdk::offsets::LevelRendererPlayer::mSelectionOverlayMaterial);
 
     uintptr_t chPtr = *(uintptr_t*)((uintptr_t)screenContext + bedrocktools::sdk::offsets::ScreenContext::mColorHolder);
     if (!chPtr || chPtr < 0x1000) return;
@@ -112,35 +110,37 @@ static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
     float miny = fp.feet.y, maxy = fp.feet.y + fp.height;
     float minz = fp.feet.z - hw, maxz = fp.feet.z + hw;
 
+    // Minimal geometry first (12 edges only) — rings caused heavy batches
     tess_util::Lines lines;
-    lines.reserve(64);
+    lines.reserve(16);
     tess_util::Context::addBox(lines, minx, miny, minz, maxx, maxy, maxz);
-    // head
-    float hy0 = fp.feet.y + fp.height * 0.75f;
-    tess_util::Context::addBox(lines, minx + hw * 0.25f, hy0, minz + hw * 0.25f,
-                                      maxx - hw * 0.25f, maxy, maxz - hw * 0.25f);
-    // bright ground ring
-    tess_util::Context::addRing(lines, fp.feet.x, fp.feet.z, fp.feet.y + 0.05f, 0.6f, 0.6f, 40, 0.f);
-    // top cross
-    float top = maxy + 0.2f;
-    lines.push_back({{fp.feet.x - 0.35f, top, fp.feet.z}, {fp.feet.x + 0.35f, top, fp.feet.z}});
-    lines.push_back({{fp.feet.x, top, fp.feet.z - 0.35f}, {fp.feet.x, top, fp.feet.z + 0.35f}});
+
+    if (g_drawOk == 0) {
+        sm_status::write("FakePlayer: about to draw box lines=%zu tess=%p mat=%p cam=%.1f,%.1f,%.1f",
+            lines.size(), tess, mat, camX, camY, camZ);
+    }
 
     T.drawLines(tess, screenContext, mat, camX, camY, camZ, lines, 0xFF00FFFF);
-    tess_util::Lines thick;
-    tess_util::Context::addBox(thick, minx - 0.03f, miny, minz - 0.03f, maxx + 0.03f, maxy, maxz + 0.03f);
-    T.drawLines(tess, screenContext, mat, camX, camY, camZ, thick, 0xCCFFFFFF);
 
     ch[0] = saved[0]; ch[1] = saved[1]; ch[2] = saved[2]; ch[3] = saved[3];
 
-    if ((++g_renderFrames % 90) == 1) {
-        sm_status::write("FakePlayer: DRAWING frame=%d at %.1f %.1f %.1f lines=%zu",
-            g_renderFrames, fp.feet.x, fp.feet.y, fp.feet.z, lines.size());
+    if (T.crashGuard == 5) {
+        if (g_drawOk == 0) {
+            sm_status::write("FakePlayer: DRAW OK guard=%d count=%d", T.crashGuard, T.drawCount);
+        }
+        g_drawOk++;
+        if ((g_drawOk % 120) == 1) {
+            sm_status::write("FakePlayer: DRAWING frame=%d at %.1f %.1f %.1f",
+                g_drawOk, fp.feet.x, fp.feet.y, fp.feet.z);
+        }
+    } else {
+        sm_status::write("FakePlayer: DRAW incomplete guard=%d (crash mid-draw?)", T.crashGuard);
     }
+    g_renderFrames++;
 }
 
 FakePlayerModule::FakePlayerModule()
-    : Module("FakePlayer", "Copy of you at your coords (cyan box). Zero knockback when not following.") {
+    : Module("FakePlayer", "Copy of you (cyan box). Zero knockback when not following.") {
     showInMenu = true;
     g_mod = this;
 }
@@ -160,6 +160,8 @@ void FakePlayerModule::onEnable() {
     sm_status::write("FakePlayer: onEnable");
     render_dispatch::ensureHooked();
     wantSpawn = true;
+    g_drawOk = 0;
+    tess_util::ctx().drawDisabled = false;
 }
 
 void FakePlayerModule::onDisable() {
