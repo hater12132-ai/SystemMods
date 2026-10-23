@@ -28,7 +28,8 @@ target("BedrockTools")
         "src/config/*.cpp",
         "src/launcher/*.cpp",
         "src/modules/ModuleRegistry.cpp",
-        "src/modules/visual/targetesp.cpp"
+        "src/modules/visual/targetesp.cpp",
+        "src/modules/visual/fakeplayer.cpp"
     )
     add_includedirs("include", {public = true})
     add_includedirs("src", "third_party")

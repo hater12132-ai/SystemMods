@@ -1,4 +1,5 @@
 #include "targetesp.hpp"
+#include "fakeplayer_shared.hpp"
 #include <bedrocktools/memory/Signatures.hpp>
 #include "core/memory/Hooks.hpp"
 #include <bedrocktools/sdk/Memory.hpp>
@@ -499,6 +500,72 @@ static void renderTarget(void* ent, void* tess, void* sc, void* mat,
     drawLines(accent, g_mod->chainColor);
 }
 
+
+static void renderFakePlayerTarget(void* tess, void* sc, void* mat,
+                                   float camX, float camY, float camZ) {
+    auto& fp = fakeplayer::get();
+    if (!fp.active) return;
+    // Build a synthetic AABB matching the dummy and run style code via local vars
+    float cx = fp.feet.x;
+    float cz = fp.feet.z;
+    float y0 = fp.feet.y + g_mod->ringHeight;
+    float y2 = fp.feet.y + fp.height - 0.04f;
+    float pulse = 1.0f + 0.07f * std::sin(g_phase * 2.4f);
+    if (fp.hitFlash > 0.f) pulse += 0.12f * fp.hitFlash;
+    float rx = (fp.width * 0.55f + 0.18f) * pulse;
+    float rz = rx;
+    float thick = std::clamp(g_mod->thickness, 0.3f, 2.5f);
+
+    Lines primary, accent;
+    primary.reserve(400);
+    accent.reserve(400);
+
+    switch (std::clamp(g_mod->style, 0, (int)TargetESPModule::StyleCount - 1)) {
+        case TargetESPModule::StyleNova:     styleNova(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleWild:     styleWild(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleRhombus:  styleRhombus(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleScanner:  styleScanner(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleVega:     styleVega(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleSwords:   styleSwords(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleCrystals: styleCrystals(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleJello:    styleJello(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleGhost:    styleGhost(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleBubble:   styleBubble(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleHelix:    styleHelix(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleOrbit:    styleOrbit(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+        case TargetESPModule::StyleChains:
+        default:                             styleChains(primary, accent, cx, cz, y0, y2, rx, rz, thick); break;
+    }
+
+    auto drawLines = [&](const Lines& lines, uint32_t color) {
+        if (lines.empty()) return;
+        float r = ((color >> 16) & 0xFF) / 255.f;
+        float g = ((color >>  8) & 0xFF) / 255.f;
+        float b = ((color      ) & 0xFF) / 255.f;
+        float a = ((color >> 24) & 0xFF) / 255.f;
+        s_tessBegin(tess, nullptr, 4, (int)lines.size() * 2, 0);
+        s_tessColor(tess, r, g, b, a);
+        for (const auto& ln : lines) {
+            auto p1 = ln.first, p2 = ln.second;
+            p1.x -= camX; p1.y -= camY; p1.z -= camZ;
+            p2.x -= camX; p2.y -= camY; p2.z -= camZ;
+            s_tessVertex(tess, p1.x, p1.y, p1.z);
+            s_tessVertex(tess, p2.x, p2.y, p2.z);
+        }
+        char pad[64]{};
+        s_renderMesh(sc, tess, mat, pad);
+    };
+
+    uint32_t ring = g_mod->ringColor;
+    uint32_t chain = g_mod->chainColor;
+    if (fp.hitFlash > 0.1f) {
+        // flash warmer on aim/hit
+        chain = 0xFFFF3333;
+    }
+    drawLines(primary, ring);
+    drawLines(accent, chain);
+}
+
 static void _renderLevel_hook(void* _this, void* screenContext, void* a3) {
     if (_renderLevel_orig) _renderLevel_orig(_this, screenContext, a3);
     if (!g_mod || !g_mod->enabled || !g_localPlayerPtr) return;
@@ -554,6 +621,9 @@ static void _renderLevel_hook(void* _this, void* screenContext, void* a3) {
     }
     if (g_mod->showSelf && g_localPlayerPtr)
         renderTarget(g_localPlayerPtr, tess, screenContext, mat, camX, camY, camZ);
+
+    // Practice dummy for TargetESP testing
+    renderFakePlayerTarget(tess, screenContext, mat, camX, camY, camZ);
 
     ch[0]=saved[0]; ch[1]=saved[1]; ch[2]=saved[2]; ch[3]=saved[3];
 }

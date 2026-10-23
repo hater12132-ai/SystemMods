@@ -1,5 +1,6 @@
 #include "ModuleRegistry.hpp"
 #include "visual/targetesp.hpp"
+#include "visual/fakeplayer.hpp"
 
 ModuleRegistry& ModuleRegistry::get() {
     static ModuleRegistry registry;
@@ -38,4 +39,5 @@ void registerAllModules() {
     auto& registry = ModuleRegistry::get();
     if (!registry.modules().empty()) return;
     registry.emplace<TargetESPModule>();
+    registry.emplace<FakePlayerModule>();
 }
