@@ -12,9 +12,7 @@ Module* ModuleRegistry::find(std::string_view id) const {
     return it == mById.end() ? nullptr : it->second;
 }
 
-const std::vector<Module*>& ModuleRegistry::modules() const {
-    return mView;
-}
+const std::vector<Module*>& ModuleRegistry::modules() const { return mView; }
 
 void ModuleRegistry::initialize() {
     if (mInitialized) return;

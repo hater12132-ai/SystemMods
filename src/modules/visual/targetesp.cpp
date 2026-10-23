@@ -1,7 +1,7 @@
 #include "targetesp.hpp"
 #include "fakeplayer_shared.hpp"
+#include "render_dispatch.hpp"
 #include <bedrocktools/memory/Signatures.hpp>
-#include "core/memory/Hooks.hpp"
 #include <bedrocktools/sdk/Memory.hpp>
 #include <bedrocktools/events/EventBus.hpp>
 #include <bedrocktools/sdk/Offsets.hpp>
@@ -93,7 +93,7 @@ static Actor_isInvisible_t s_actorIsInvisible = nullptr;
 static Actor_fetchNearbyActorsSorted_t s_actorFetchNearby = nullptr;
 static MaterialPtr s_matSelection;
 static uintptr_t s_renderMaterialGroup = 0;
-static void (*_renderLevel_orig)(void*, void*, void*) = nullptr;
+// RenderLevel hooked once via render_dispatch
 static bedrocktools::sdk::Vec3 g_playerPos{};
 static bedrocktools::sdk::Vec2 g_playerRot{};
 static void* g_localPlayerPtr = nullptr;
@@ -566,8 +566,7 @@ static void renderFakePlayerTarget(void* tess, void* sc, void* mat,
     drawLines(accent, chain);
 }
 
-static void _renderLevel_hook(void* _this, void* screenContext, void* a3) {
-    if (_renderLevel_orig) _renderLevel_orig(_this, screenContext, a3);
+static void onRender(void* _this, void* screenContext, void* /*a3*/) {
     if (!g_mod || !g_mod->enabled || !g_localPlayerPtr) return;
     if (!s_tessBegin || !s_tessColor || !s_tessVertex || !s_renderMesh) return;
     if (!screenContext || (uintptr_t)screenContext < 0x1000) return;
@@ -623,7 +622,8 @@ static void _renderLevel_hook(void* _this, void* screenContext, void* a3) {
         renderTarget(g_localPlayerPtr, tess, screenContext, mat, camX, camY, camZ);
 
     // Practice dummy for TargetESP testing
-    renderFakePlayerTarget(tess, screenContext, mat, camX, camY, camZ);
+    if (g_mod->includeFakePlayer)
+        renderFakePlayerTarget(tess, screenContext, mat, camX, camY, camZ);
 
     ch[0]=saved[0]; ch[1]=saved[1]; ch[2]=saved[2]; ch[3]=saved[3];
 }
@@ -636,8 +636,7 @@ TargetESPModule::TargetESPModule()
 TargetESPModule::~TargetESPModule() { if (g_mod == this) g_mod = nullptr; }
 
 void TargetESPModule::onInit() {
-    if (auto addr = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::RenderLevel))
-        m_patchTarget = (void*)addr;
+    
     if (auto tb = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::TessellatorBegin))
         s_tessBegin = (Tessellator_begin_t)tb;
     if (auto tc = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::TessellatorColor))
@@ -660,20 +659,17 @@ void TargetESPModule::onInit() {
         s_actorFetchNearby = (Actor_fetchNearbyActorsSorted_t)afn;
     bedrocktools::events::bus().subscribe<bedrocktools::events::LocalPlayerTickEvent>(
         [](auto& e) { onTick(e.player); });
+    render_dispatch::add(onRender);
 }
 
-void TargetESPModule::applyPatch() {
-    if (m_patched || !m_patchTarget) return;
-    bedrocktools::hooks::install(m_patchTarget, (void*)_renderLevel_hook, (void**)&_renderLevel_orig);
-    m_patched = true;
-}
-void TargetESPModule::onEnable() { applyPatch(); }
+void TargetESPModule::onEnable() { render_dispatch::ensureHooked(); }
 void TargetESPModule::onDisable() {}
 
 void TargetESPModule::loadConfig(const nlohmann::json& j) {
     Module::loadConfig(j);
     showSelf = j.value("showSelf", showSelf);
     onlyLookingAt = j.value("onlyLookingAt", onlyLookingAt);
+    includeFakePlayer = j.value("includeFakePlayer", includeFakePlayer);
     maxDistance = j.value("maxDistance", maxDistance);
     ringHeight = j.value("ringHeight", ringHeight);
     animSpeed = j.value("animSpeed", animSpeed);
@@ -695,6 +691,7 @@ void TargetESPModule::saveConfig(nlohmann::json& j) {
     Module::saveConfig(j);
     j["showSelf"] = showSelf;
     j["onlyLookingAt"] = onlyLookingAt;
+    j["includeFakePlayer"] = includeFakePlayer;
     j["maxDistance"] = maxDistance;
     j["ringHeight"] = ringHeight;
     j["animSpeed"] = animSpeed;
