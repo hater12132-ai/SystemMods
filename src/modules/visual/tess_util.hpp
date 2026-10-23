@@ -83,6 +83,29 @@ inline uintptr_t resolveADRP(uint32_t* insns, size_t count, uint32_t targetReg) 
     return 0;
 }
 
+inline constexpr uint8_t kVertexPat[] = {
+    0x05,0x10,0x2E,0x1E, 0xE6,0x03,0x22,0x1E, 0x06,0x10,0x2E,0x1E, 0x70,0x20,0x25,0x1E,
+    0x4D,0x01,0x00,0x54, 0x90,0x20,0x25,0x1E, 0xAD,0x01,0x00,0x54, 0x08,0x50,0x46,0x39
+};
+
+inline uintptr_t scanNear(uintptr_t anchor, size_t before, size_t after) {
+    if (!anchor) return 0;
+    uintptr_t start = anchor > before ? anchor - before : anchor;
+    uintptr_t end = anchor + after;
+    const size_t n = sizeof(kVertexPat);
+    for (uintptr_t p = start; p + n < end; p += 4) {
+        bool ok = true;
+        for (size_t i = 0; i < n; ++i) {
+            if (*reinterpret_cast<const uint8_t*>(p + i) != kVertexPat[i]) {
+                ok = false;
+                break;
+            }
+        }
+        if (ok) return p;
+    }
+    return 0;
+}
+
 struct Context {
     TessBegin begin = nullptr;
     TessColor color = nullptr;
@@ -92,9 +115,7 @@ struct Context {
     uintptr_t matGroup = 0;
     bool readyFlag = false;
     int resolveAttempts = 0;
-    int lastFailLog = -1;
 
-    /** Keep trying until all four function pointers resolve. */
     void resolve() {
         if (readyFlag) return;
         ++resolveAttempts;
@@ -110,6 +131,16 @@ struct Context {
         if (tv) vertex = (TessVertex)tv;
         if (rm) mesh = (RenderMesh)rm;
 
+        if (!vertex && color) {
+            uintptr_t found = scanNear((uintptr_t)color, 0x1000, 0x4000);
+            if (!found && begin)
+                found = scanNear((uintptr_t)begin, 0x1000, 0x5000);
+            if (found) {
+                vertex = (TessVertex)found;
+                sm_status::write("tess: vertex FOUND via scan @%p", (void*)found);
+            }
+        }
+
         if (!matGroup) {
             auto rmg = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::RenderMaterialGroupCommon);
             if (rmg) {
@@ -121,13 +152,12 @@ struct Context {
 
         if (begin && color && vertex && mesh) {
             readyFlag = true;
-            sm_status::write("tess: READY begin=%p color=%p vertex=%p mesh=%p matGroup=%p attempts=%d",
-                (void*)begin, (void*)color, (void*)vertex, (void*)mesh, (void*)matGroup, resolveAttempts);
+            sm_status::write("tess: READY begin=%p color=%p vertex=%p mesh=%p attempts=%d",
+                (void*)begin, (void*)color, (void*)vertex, (void*)mesh, resolveAttempts);
             return;
         }
 
-        // Log every ~60 attempts so we see which pointer is missing
-        if (resolveAttempts == 1 || resolveAttempts == 30 || resolveAttempts % 300 == 0) {
+        if (resolveAttempts == 1 || resolveAttempts == 30 || resolveAttempts % 600 == 0) {
             sm_status::write("tess: NOT ready attempt=%d begin=%p color=%p vertex=%p mesh=%p",
                 resolveAttempts, (void*)begin, (void*)color, (void*)vertex, (void*)mesh);
         }
