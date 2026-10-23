@@ -22,27 +22,13 @@ target("BedrockTools")
     set_kind("shared")
     set_languages("c++20")
     set_strip("all")
-    -- Core + only SystemMods modules (avoids stb / unused modules)
     add_files(
         "src/main.cpp",
         "src/core/**.cpp",
         "src/config/*.cpp",
         "src/launcher/*.cpp",
         "src/modules/ModuleRegistry.cpp",
-        "src/modules/hud/armorhud.cpp",
-        "src/modules/visual/connectedglass.cpp",
-        "src/modules/visual/fogcolor.cpp",
-        "src/modules/visual/fullbright.cpp",
-        "src/modules/visual/glintcolor.cpp",
-        "src/modules/visual/hitbox.cpp",
-        "src/modules/visual/nofog.cpp",
-        "src/modules/visual/swingmodifier.cpp",
-        "src/modules/visual/thirdpersonnametag.cpp",
-        "src/modules/visual/viewmodel.cpp",
-        "src/modules/player/nick.cpp",
-        "src/modules/player/timechanger.cpp",
-        "src/modules/player/weatherchanger.cpp",
-        "src/modules/misc/nodisconnect.cpp"
+        "src/modules/visual/targetesp.cpp"
     )
     add_includedirs("include", {public = true})
     add_includedirs("src", "third_party")
