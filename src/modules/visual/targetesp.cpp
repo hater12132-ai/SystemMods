@@ -157,14 +157,8 @@ static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
     if (!screenContext || (uintptr_t)screenContext < 0x1000) return;
 
     auto& T = tess_util::ctx();
-    T.resolve();
-    if (!T.ready()) {
-        if (!T.loggedOnce) {
-            sm_status::write("TargetESP: tess not ready");
-            T.loggedOnce = true;
-        }
-        return;
-    }
+    // ready() retries signature resolve until tess functions are found
+    if (!T.ready()) return;
 
     uintptr_t tessPtr = *(uintptr_t*)((uintptr_t)screenContext + bedrocktools::sdk::offsets::ScreenContext::mTessellator);
     if (!tessPtr || tessPtr < 0x1000) return;
