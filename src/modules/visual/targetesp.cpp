@@ -158,11 +158,7 @@ static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
 
     auto& T = tess_util::ctx();
     T.resolve();
-    if (!T.ready()) {
-        if (!T.loggedOnce) {
-            sm_status::write("TargetESP: tess not ready");
-            T.loggedOnce = true;
-        }
+    if (!T.ready()) return;
         return;
     }
 
