@@ -1,12 +1,10 @@
 #pragma once
-
 #include "../Module.hpp"
 
 class FakePlayerModule : public Module {
 public:
     FakePlayerModule();
     ~FakePlayerModule() override;
-
     void onInit() override;
     void onEnable() override;
     void onDisable() override;
@@ -19,9 +17,7 @@ public:
     float heightOffset = 0.0f;
     bool faceYou = true;
     bool drawBody = true;
-    bool drawName = true;
-    bool lockPosition = true;
     float bodyScale = 1.0f;
     std::string dummyName = "FakePlayer";
-    bool m_wantSpawn = false;
+    bool wantSpawn = false;
 };
