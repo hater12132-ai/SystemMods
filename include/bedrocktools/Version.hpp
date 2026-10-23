@@ -4,8 +4,8 @@
 namespace bedrocktools {
 inline constexpr std::string_view Name = "SystemMods";
 inline constexpr std::string_view Author = "hater12132-ai";
-inline constexpr std::string_view Description = "SystemMods: TargetESP + FakePlayer (debug logging).";
-inline constexpr std::string_view Version = "1.5.1-fix";
+inline constexpr std::string_view Description = "SystemMods: TargetESP + FakePlayer at player coords.";
+inline constexpr std::string_view Version = "1.5.2-spawnself";
 inline constexpr std::uint32_t SdkVersion = 1;
 inline constexpr std::string_view RuntimeLibrary = "libBedrockTools.so";
 }

@@ -90,28 +90,47 @@ struct Context {
     RenderMesh mesh = nullptr;
     MaterialPtr matSelection;
     uintptr_t matGroup = 0;
-    bool resolved = false;
-    bool loggedOnce = false;
+    bool readyFlag = false;
+    int resolveAttempts = 0;
+    int lastFailLog = -1;
 
+    /** Keep trying until all four function pointers resolve. */
     void resolve() {
-        if (resolved) return;
-        resolved = true;
+        if (readyFlag) return;
+        ++resolveAttempts;
+
         auto tb = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::TessellatorBegin);
         auto tc = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::TessellatorColor);
         auto tv = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::TessellatorVertex);
         auto rm = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::MeshHelpersRenderMeshImmediately2);
         if (!rm) rm = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::MeshHelpersRenderMeshImmediately);
-        begin = (TessBegin)tb;
-        color = (TessColor)tc;
-        vertex = (TessVertex)tv;
-        mesh = (RenderMesh)rm;
-        auto rmg = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::RenderMaterialGroupCommon);
-        if (rmg) {
-            uintptr_t g = resolveADRP(reinterpret_cast<uint32_t*>(rmg), 2, 0);
-            if (g) matGroup = g + bedrocktools::sdk::offsets::MaterialGroup::mRenderMaterialGroupOffset;
+
+        if (tb) begin = (TessBegin)tb;
+        if (tc) color = (TessColor)tc;
+        if (tv) vertex = (TessVertex)tv;
+        if (rm) mesh = (RenderMesh)rm;
+
+        if (!matGroup) {
+            auto rmg = bedrocktools::memory::resolve(bedrocktools::memory::SignatureId::RenderMaterialGroupCommon);
+            if (rmg) {
+                uintptr_t g = resolveADRP(reinterpret_cast<uint32_t*>(rmg), 8, 0);
+                if (!g) g = resolveADRP(reinterpret_cast<uint32_t*>(rmg), 8, 1);
+                if (g) matGroup = g + bedrocktools::sdk::offsets::MaterialGroup::mRenderMaterialGroupOffset;
+            }
         }
-        sm_status::write("tess: begin=%p color=%p vertex=%p mesh=%p matGroup=%p",
-            (void*)begin, (void*)color, (void*)vertex, (void*)mesh, (void*)matGroup);
+
+        if (begin && color && vertex && mesh) {
+            readyFlag = true;
+            sm_status::write("tess: READY begin=%p color=%p vertex=%p mesh=%p matGroup=%p attempts=%d",
+                (void*)begin, (void*)color, (void*)vertex, (void*)mesh, (void*)matGroup, resolveAttempts);
+            return;
+        }
+
+        // Log every ~60 attempts so we see which pointer is missing
+        if (resolveAttempts == 1 || resolveAttempts == 30 || resolveAttempts % 300 == 0) {
+            sm_status::write("tess: NOT ready attempt=%d begin=%p color=%p vertex=%p mesh=%p",
+                resolveAttempts, (void*)begin, (void*)color, (void*)vertex, (void*)mesh);
+        }
     }
 
     MaterialPtr getMaterial(const char* name) {
@@ -128,11 +147,14 @@ struct Context {
             matSelection = getMaterial("selection_box");
     }
 
-    bool ready() const { return begin && color && vertex && mesh; }
+    bool ready() {
+        resolve();
+        return readyFlag;
+    }
 
     void drawLines(void* tess, void* sc, void* mat, float camX, float camY, float camZ,
                    const Lines& lines, uint32_t rgba) {
-        if (!ready() || lines.empty()) return;
+        if (!readyFlag || lines.empty()) return;
         float r = ((rgba >> 16) & 0xFF) / 255.f;
         float g = ((rgba >>  8) & 0xFF) / 255.f;
         float b = ((rgba      ) & 0xFF) / 255.f;

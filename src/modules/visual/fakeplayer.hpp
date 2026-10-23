@@ -11,12 +11,15 @@ public:
     void loadConfig(const nlohmann::json& j) override;
     void saveConfig(nlohmann::json& j) override;
 
-    void spawnInFront();
+    void spawnAtPlayer();
 
-    float distance = 3.0f;
+    /** 0 = same coords as you (copy). >0 = blocks in front. */
+    float distance = 0.0f;
     float heightOffset = 0.0f;
-    bool faceYou = true;
+    bool faceYou = false;
     bool drawBody = true;
+    /** If true, dummy stays glued to your position every tick (moving copy). */
+    bool followPlayer = false;
     float bodyScale = 1.0f;
     std::string dummyName = "FakePlayer";
     bool wantSpawn = false;

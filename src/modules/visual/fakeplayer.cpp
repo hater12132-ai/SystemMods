@@ -14,7 +14,7 @@ static bedrocktools::sdk::Vec2 g_rot{};
 static void* g_lp = nullptr;
 static int g_renderFrames = 0;
 
-void FakePlayerModule::spawnInFront() {
+void FakePlayerModule::spawnAtPlayer() {
     if (!g_lp) {
         sm_status::write("FakePlayer: spawn skipped — no local player yet");
         return;
@@ -23,15 +23,20 @@ void FakePlayerModule::spawnInFront() {
     float fx = -std::sin(yaw), fz = std::cos(yaw);
     auto& fp = fakeplayer::get();
     float sc = std::clamp(bodyScale, 0.5f, 2.5f);
-    fp.feet = {g_pos.x + fx * distance, g_pos.y + heightOffset, g_pos.z + fz * distance};
-    fp.yaw = g_rot.y + 180.f;
+    // distance 0 = exact copy of your feet position
+    fp.feet = {
+        g_pos.x + fx * distance,
+        g_pos.y + heightOffset,
+        g_pos.z + fz * distance
+    };
+    fp.yaw = g_rot.y; // same facing as you (copy)
     fp.height = 1.8f * sc;
     fp.width = 0.6f * sc;
     fp.hitFlash = 0.f;
     fakeplayer::setName(dummyName.c_str());
     fp.active = true;
-    sm_status::write("FakePlayer: SPAWNED at %.2f %.2f %.2f (dist=%.1f)",
-        fp.feet.x, fp.feet.y, fp.feet.z, distance);
+    sm_status::write("FakePlayer: COPY at %.2f %.2f %.2f yaw=%.1f dist=%.1f follow=%d",
+        fp.feet.x, fp.feet.y, fp.feet.z, fp.yaw, distance, followPlayer ? 1 : 0);
 }
 
 static void onTick(void* player) {
@@ -49,34 +54,37 @@ static void onTick(void* player) {
         return;
     }
     if (g_mod->wantSpawn || !fp.active) {
-        g_mod->spawnInFront();
+        g_mod->spawnAtPlayer();
         g_mod->wantSpawn = false;
     }
     if (!fp.active) return;
 
-    if (g_mod->faceYou) {
+    // Moving copy of yourself
+    if (g_mod->followPlayer) {
+        float yaw = g_rot.y * (float)(M_PI / 180.0);
+        float fx = -std::sin(yaw), fz = std::cos(yaw);
+        fp.feet = {
+            g_pos.x + fx * g_mod->distance,
+            g_pos.y + g_mod->heightOffset,
+            g_pos.z + fz * g_mod->distance
+        };
+        fp.yaw = g_rot.y;
+    } else if (g_mod->faceYou) {
         float dx = g_pos.x - fp.feet.x;
         float dz = g_pos.z - fp.feet.z;
         fp.yaw = std::atan2(dx, dz) * (float)(180.0 / M_PI);
     }
+    // else: locked world position = zero knockback stationary copy
 }
 
 static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
     if (!g_mod || !g_mod->enabled) return;
     auto& fp = fakeplayer::get();
-    if (!fp.active) return;
-    if (!g_mod->drawBody) return;
+    if (!fp.active || !g_mod->drawBody) return;
     if (!screenContext || (uintptr_t)screenContext < 0x1000) return;
 
     auto& T = tess_util::ctx();
-    T.resolve();
-    if (!T.ready()) {
-        if (!T.loggedOnce) {
-            sm_status::write("FakePlayer: tess not ready — cannot draw");
-            T.loggedOnce = true;
-        }
-        return;
-    }
+    if (!T.ready()) return; // keeps retrying inside ready()
 
     uintptr_t tessPtr = *(uintptr_t*)((uintptr_t)screenContext + bedrocktools::sdk::offsets::ScreenContext::mTessellator);
     if (!tessPtr || tessPtr < 0x1000) return;
@@ -105,38 +113,34 @@ static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
     float minz = fp.feet.z - hw, maxz = fp.feet.z + hw;
 
     tess_util::Lines lines;
-    lines.reserve(48);
-    // Big bright AABB — impossible to miss if drawing works
+    lines.reserve(64);
     tess_util::Context::addBox(lines, minx, miny, minz, maxx, maxy, maxz);
-    // Inner head box
+    // head
     float hy0 = fp.feet.y + fp.height * 0.75f;
-    tess_util::Context::addBox(lines, minx + hw*0.3f, hy0, minz + hw*0.3f,
-                                      maxx - hw*0.3f, maxy, maxz - hw*0.3f);
-    // Ground ring
-    tess_util::Context::addRing(lines, fp.feet.x, fp.feet.z, fp.feet.y + 0.05f, 0.55f, 0.55f, 32, 0.f);
-    // Cross on top
-    float top = maxy + 0.15f;
-    lines.push_back({{fp.feet.x - 0.3f, top, fp.feet.z}, {fp.feet.x + 0.3f, top, fp.feet.z}});
-    lines.push_back({{fp.feet.x, top, fp.feet.z - 0.3f}, {fp.feet.x, top, fp.feet.z + 0.3f}});
+    tess_util::Context::addBox(lines, minx + hw * 0.25f, hy0, minz + hw * 0.25f,
+                                      maxx - hw * 0.25f, maxy, maxz - hw * 0.25f);
+    // bright ground ring
+    tess_util::Context::addRing(lines, fp.feet.x, fp.feet.z, fp.feet.y + 0.05f, 0.6f, 0.6f, 40, 0.f);
+    // top cross
+    float top = maxy + 0.2f;
+    lines.push_back({{fp.feet.x - 0.35f, top, fp.feet.z}, {fp.feet.x + 0.35f, top, fp.feet.z}});
+    lines.push_back({{fp.feet.x, top, fp.feet.z - 0.35f}, {fp.feet.x, top, fp.feet.z + 0.35f}});
 
-    uint32_t col = fp.hitFlash > 0.2f ? 0xFFFF3333 : 0xFF00FFFF; // cyan / red
-    T.drawLines(tess, screenContext, mat, camX, camY, camZ, lines, col);
-
-    // second pass slightly larger for thickness
-    tess_util::Lines lines2;
-    tess_util::Context::addBox(lines2, minx - 0.02f, miny, minz - 0.02f, maxx + 0.02f, maxy, maxz + 0.02f);
-    T.drawLines(tess, screenContext, mat, camX, camY, camZ, lines2, 0xAAFFFFFF);
+    T.drawLines(tess, screenContext, mat, camX, camY, camZ, lines, 0xFF00FFFF);
+    tess_util::Lines thick;
+    tess_util::Context::addBox(thick, minx - 0.03f, miny, minz - 0.03f, maxx + 0.03f, maxy, maxz + 0.03f);
+    T.drawLines(tess, screenContext, mat, camX, camY, camZ, thick, 0xCCFFFFFF);
 
     ch[0] = saved[0]; ch[1] = saved[1]; ch[2] = saved[2]; ch[3] = saved[3];
 
-    if ((++g_renderFrames % 120) == 1) {
-        sm_status::write("FakePlayer: drawing frame=%d pos=%.1f %.1f %.1f lines=%zu",
+    if ((++g_renderFrames % 90) == 1) {
+        sm_status::write("FakePlayer: DRAWING frame=%d at %.1f %.1f %.1f lines=%zu",
             g_renderFrames, fp.feet.x, fp.feet.y, fp.feet.z, lines.size());
     }
 }
 
 FakePlayerModule::FakePlayerModule()
-    : Module("FakePlayer", "Cyan practice box 3 blocks ahead (zero knockback).") {
+    : Module("FakePlayer", "Copy of you at your coords (cyan box). Zero knockback when not following.") {
     showInMenu = true;
     g_mod = this;
 }
@@ -146,9 +150,7 @@ FakePlayerModule::~FakePlayerModule() {
 }
 
 void FakePlayerModule::onInit() {
-    sm_status::clear();
     sm_status::write("FakePlayer: onInit");
-    tess_util::ctx().resolve();
     bedrocktools::events::bus().subscribe<bedrocktools::events::LocalPlayerTickEvent>(
         [](auto& e) { onTick(e.player); });
     render_dispatch::add(onRender);
@@ -172,6 +174,7 @@ void FakePlayerModule::loadConfig(const nlohmann::json& j) {
     heightOffset = j.value("heightOffset", heightOffset);
     faceYou = j.value("faceYou", faceYou);
     drawBody = j.value("drawBody", drawBody);
+    followPlayer = j.value("followPlayer", followPlayer);
     bodyScale = j.value("bodyScale", bodyScale);
     if (j.contains("dummyName") && j["dummyName"].is_string())
         dummyName = j["dummyName"].get<std::string>();
@@ -183,6 +186,7 @@ void FakePlayerModule::saveConfig(nlohmann::json& j) {
     j["heightOffset"] = heightOffset;
     j["faceYou"] = faceYou;
     j["drawBody"] = drawBody;
+    j["followPlayer"] = followPlayer;
     j["bodyScale"] = bodyScale;
     j["dummyName"] = dummyName;
 }
