@@ -157,10 +157,7 @@ static void onRender(void* levelRenderer, void* screenContext, void* /*a3*/) {
     if (!screenContext || (uintptr_t)screenContext < 0x1000) return;
 
     auto& T = tess_util::ctx();
-    T.resolve();
     if (!T.ready()) return;
-        return;
-    }
 
     uintptr_t tessPtr = *(uintptr_t*)((uintptr_t)screenContext + bedrocktools::sdk::offsets::ScreenContext::mTessellator);
     if (!tessPtr || tessPtr < 0x1000) return;
